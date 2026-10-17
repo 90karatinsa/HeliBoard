@@ -65,6 +65,8 @@ object Defaults {
     var PREF_POPUP_ON = true
     const val PREF_AUTO_CORRECTION = true
     const val PREF_MORE_AUTO_CORRECTION = false
+    const val PREF_NEXT_CHAR_TOUCH_AREA = true
+    const val PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY = 0.5f
     const val PREF_AUTO_CORRECT_CONFIDENCE = 0.24f
     const val PREF_AUTOCORRECT_SHORTCUTS = true
     const val PREF_BACKSPACE_REVERTS_AUTOCORRECT = true

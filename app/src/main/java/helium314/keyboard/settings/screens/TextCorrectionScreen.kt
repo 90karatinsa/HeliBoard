@@ -68,6 +68,9 @@ fun TextCorrectionScreen(
         if (autocorrectEnabled) Settings.PREF_AUTOCORRECT_CAPITALIZED_SUGGESTION else null,
         if (autocorrectEnabled) Settings.PREF_AUTO_CORRECT_CONFIDENCE else null,
         if (autocorrectEnabled) Settings.PREF_BACKSPACE_REVERTS_AUTOCORRECT else null,
+        Settings.PREF_NEXT_CHAR_TOUCH_AREA,
+        if (prefs.getBoolean(Settings.PREF_NEXT_CHAR_TOUCH_AREA, Defaults.PREF_NEXT_CHAR_TOUCH_AREA))
+            Settings.PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY else null,
         Settings.PREF_AUTO_CAP,
         R.string.settings_category_space,
         Settings.PREF_KEY_USE_DOUBLE_SPACE_PERIOD,
@@ -125,6 +128,20 @@ fun createCorrectionSettings(context: Context) = listOf(
         R.string.more_autocorrect, R.string.more_autocorrect_summary
     ) {
         SwitchPreference(it, Defaults.PREF_MORE_AUTO_CORRECTION)
+    },
+    Setting(context, Settings.PREF_NEXT_CHAR_TOUCH_AREA,
+        R.string.next_char_touch_area, R.string.next_char_touch_area_summary
+    ) {
+        SwitchPreference(it, Defaults.PREF_NEXT_CHAR_TOUCH_AREA)
+    },
+    Setting(context, Settings.PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY, R.string.next_char_touch_area_intensity) { setting ->
+        SliderPreference(
+            name = setting.title,
+            key = setting.key,
+            default = Defaults.PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY,
+            range = 0f..1f,
+            description = { "${(it * 100).toInt() / 100f}" }
+        )
     },
     Setting(context, Settings.PREF_AUTOCORRECT_SHORTCUTS,
         R.string.auto_correct_shortcuts, R.string.auto_correct_shortcuts_summary

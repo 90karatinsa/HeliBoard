@@ -6,6 +6,8 @@
 
 package helium314.keyboard.latin.dictionary;
 
+import androidx.annotation.NonNull;
+
 import com.android.inputmethod.latin.BinaryDictionary;
 
 import helium314.keyboard.latin.NgramContext;
@@ -29,6 +31,9 @@ public final class ReadOnlyBinaryDictionary extends Dictionary {
      * that change the state of dictionary.
      */
     private final ReentrantReadWriteLock mLock = new ReentrantReadWriteLock();
+    // Iterating a word costs a few hundred microseconds on a phone at background priority, so a chunk holds the
+    // read lock for tens of milliseconds at most.
+    private static final int WORDS_PER_LOCK_HOLD = 200;
 
     private final BinaryDictionary mBinaryDictionary;
 
@@ -119,6 +124,26 @@ public final class ReadOnlyBinaryDictionary extends Dictionary {
             }
         }
         return null;
+    }
+
+    @Override
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        // The read lock is held only for a chunk of words at a time, so that closing the dictionary (which needs
+        // the write lock, possibly on the UI thread) is never blocked for long. Lookups only try the lock, so a
+        // thread queued on it is close() waiting for the write lock; tryLock() would barge past it, hence the check.
+        // A closed or closing dictionary ends the loop.
+        int token = 0;
+        do {
+            if (mLock.hasQueuedThreads() || !mLock.readLock().tryLock()) {
+                return false;
+            }
+            try {
+                token = mBinaryDictionary.forEachWord(visitor, token, WORDS_PER_LOCK_HOLD);
+            } finally {
+                mLock.readLock().unlock();
+            }
+        } while (token > 0);
+        return token == 0;
     }
 
     @Override

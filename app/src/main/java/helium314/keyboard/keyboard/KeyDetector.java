@@ -6,6 +6,8 @@
 
 package helium314.keyboard.keyboard;
 
+import java.util.List;
+
 /**
  * This class handles key detection.
  */
@@ -84,7 +86,8 @@ public class KeyDetector {
 
         int minDistance = Integer.MAX_VALUE;
         Key primaryKey = null;
-        for (final Key key: mKeyboard.getNearestKeys(touchX, touchY)) {
+        final List<Key> nearestKeys = mKeyboard.getNearestKeys(touchX, touchY);
+        for (final Key key: nearestKeys) {
             // An edge key always has its enlarged hitbox to respond to an event that occurred in
             // the empty area around the key. (@see Key#markAsLeftEdge(KeyboardParams)} etc.)
             if (!key.isOnKey(touchX, touchY)) {
@@ -102,5 +105,24 @@ public class KeyDetector {
             }
         }
         return primaryKey;
+    }
+
+    /**
+     * Applies the adaptive touch areas (see {@link AdaptiveKeyHitTest}) to the key found by
+     * {@link #detectHitKey(int, int)} for a touch that starts typing at the given point: letters likely to come next
+     * in the current word may take the touch over from a neighbouring key.
+     *
+     * @param key the key detected by geometry
+     * @param x The x-coordinate of the touch point
+     * @param y The y-coordinate of the touch point
+     * @return the key that should receive the touch
+     */
+    public Key adjustKeyForTyping(final Key key, final int x, final int y, final int[] pendingKeyCodes) {
+        if (mKeyboard == null || key == null) {
+            return key;
+        }
+        final int touchX = getTouchX(x);
+        final int touchY = getTouchY(y);
+        return AdaptiveKeyHitTest.adjust(mKeyboard, touchX, touchY, key, mKeyboard.getNearestKeys(touchX, touchY), pendingKeyCodes);
     }
 }

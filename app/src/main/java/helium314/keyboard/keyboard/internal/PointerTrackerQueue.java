@@ -166,6 +166,22 @@ public final class PointerTrackerQueue {
         }
     }
 
+    /** Adds the non-modifier elements older than {@code pointer} to {@code out}, oldest first. */
+    public void getNonModifierElementsOlderThan(final Element pointer, final ArrayList<Element> out) {
+        synchronized (mExpandableArrayOfActivePointers) {
+            final int arraySize = mArraySize;
+            for (int index = 0; index < arraySize; index++) {
+                final Element element = mExpandableArrayOfActivePointers.get(index);
+                if (element == pointer) {
+                    return;
+                }
+                if (!element.isModifier()) {
+                    out.add(element);
+                }
+            }
+        }
+    }
+
     public boolean hasModifierKeyOlderThan(final Element pointer) {
         synchronized (mExpandableArrayOfActivePointers) {
             final int arraySize = mArraySize;

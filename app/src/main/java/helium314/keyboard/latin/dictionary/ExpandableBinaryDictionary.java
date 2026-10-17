@@ -56,6 +56,7 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
     private static final boolean DBG_STRESS_TEST = false;
 
     private static final int TIMEOUT_FOR_READ_OPS_IN_MILLISECONDS = 100;
+    private static final int TIMEOUT_FOR_ITERATING_WORDS_IN_MILLISECONDS = 30000;
 
     /**
      * The maximum length of a word in this dictionary.
@@ -88,6 +89,8 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
 
     /** Indicates whether a task for reloading the dictionary has been scheduled. */
     private final AtomicBoolean mIsReloading;
+    /** Set by {@link #close()}; the dictionary is never reopened afterwards. */
+    private volatile boolean mIsClosed;
 
     /** Indicates whether the current dictionary needs to be recreated. */
     private boolean mNeedsToRecreate;
@@ -136,6 +139,7 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
         mBinaryDictionary = null;
         mIsReloading = new AtomicBoolean();
         mNeedsToRecreate = false;
+        mIsClosed = false;
         mLock = new ReentrantReadWriteLock();
     }
 
@@ -194,6 +198,7 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
      */
     @Override
     public void close() {
+        mIsClosed = true;
         asyncExecuteTaskWithWriteLock(this::closeBinaryDictionary);
     }
 
@@ -521,6 +526,10 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
         final File dictFile = mDictFile;
         asyncExecuteTaskWithWriteLock(() -> {
             try {
+                if (mIsClosed) {
+                    // closed while this reload was queued: reopening would leak the native dictionary
+                    return;
+                }
                 if (!dictFile.exists() || isNeededToRecreate()) {
                     // If the dictionary file does not exist or contents have been updated,
                     // generate a new one.
@@ -576,6 +585,25 @@ abstract public class ExpandableBinaryDictionary extends Dictionary {
             }
         });
         return result.get(null /* defaultValue */, TIMEOUT_FOR_READ_OPS_IN_MILLISECONDS);
+    }
+
+    @Override
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        if (mIsClosed) {
+            return false;
+        }
+        reloadDictionaryIfRequired();
+        final AsyncResultHolder<Boolean> result = new AsyncResultHolder<>("ForEachWord");
+        asyncExecuteTaskWithLock(mLock.readLock(), () -> {
+            boolean complete = false;
+            try {
+                final BinaryDictionary binaryDictionary = getBinaryDictionary();
+                complete = binaryDictionary != null && binaryDictionary.forEachWord(visitor);
+            } finally {
+                result.set(complete);
+            }
+        });
+        return result.get(Boolean.FALSE, TIMEOUT_FOR_ITERATING_WORDS_IN_MILLISECONDS);
     }
 
     public void dumpAllWordsForDebug() {

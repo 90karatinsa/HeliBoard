@@ -415,6 +415,44 @@ public final class BinaryDictionary extends Dictionary {
         }
     }
 
+    @Override
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        int token = 0;
+        do {
+            token = forEachWord(visitor, token, Integer.MAX_VALUE);
+        } while (token > 0);
+        return token == 0;
+    }
+
+    /**
+     * Visits up to {@code maxWords} words, starting at {@code token} (0 for the first word).
+     * @return the token to continue with, 0 when all words have been visited, or -1 if the dictionary is not valid
+     */
+    public int forEachWord(@NonNull final WordVisitor visitor, final int token, final int maxWords) {
+        if (!isValidDictionary()) {
+            return -1;
+        }
+        final int[] codePoints = new int[DICTIONARY_MAX_WORD_LENGTH];
+        final boolean[] isBeginningOfSentence = new boolean[1];
+        int currentToken = token;
+        for (int i = 0; i < maxWords; i++) {
+            Arrays.fill(codePoints, 0);
+            final int nextToken = getNextWordNative(mNativeDict, currentToken, codePoints, isBeginningOfSentence);
+            final String word = StringUtils.getStringFromNullTerminatedCodePointArray(codePoints);
+            // The beginning-of-sentence entry of a user history dictionary comes back as an empty word; it is
+            // not a word, and more words may follow it.
+            if (!word.isEmpty() && !isBeginningOfSentence[0]) {
+                final int probability = getProbabilityNative(mNativeDict, StringUtils.toCodePointArray(word));
+                visitor.visit(word, probability);
+            }
+            currentToken = nextToken;
+            if (currentToken == 0) {
+                return 0;
+            }
+        }
+        return currentToken;
+    }
+
     /**
      * Method to iterate all words in the dictionary for makedict.
      * If token is 0, this method newly starts iterating the dictionary.
