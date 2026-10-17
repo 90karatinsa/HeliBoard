@@ -24,6 +24,7 @@ import helium314.keyboard.latin.suggestions.SuggestionStripView
 import helium314.keyboard.latin.utils.AutoCorrectionUtils
 import helium314.keyboard.latin.utils.Log
 import helium314.keyboard.latin.utils.BackgroundGatheringCache
+import helium314.keyboard.latin.utils.NextCharPredictor
 import helium314.keyboard.latin.utils.SuggestionResults
 import helium314.keyboard.latin.utils.WordData
 import helium314.keyboard.latin.utils.useBackgroundGathering
@@ -57,28 +58,32 @@ class Suggest(private val mDictionaryFacilitator: DictionaryFacilitator) {
         fun onGetSuggestedWords(suggestedWords: SuggestedWords?)
     }
 
+    // nextCharGeneration: the NextCharPredictor generation as read when the suggestions were requested
     fun getSuggestedWords(wordComposer: WordComposer, ngramContext: NgramContext, keyboard: Keyboard,
                           settingsValuesForSuggestion: SettingsValuesForSuggestion, isCorrectionEnabled: Boolean,
-                          inputStyle: Int, sequenceNumber: Int): SuggestedWords =
+                          inputStyle: Int, sequenceNumber: Int,
+                          nextCharGeneration: Int = NextCharPredictor.getGeneration()): SuggestedWords =
         if (wordComposer.isBatchMode) {
+            NextCharPredictor.clearPublished()
             getSuggestedWordsForBatchInput(wordComposer, ngramContext, keyboard, settingsValuesForSuggestion,
                 inputStyle, isCorrectionEnabled, sequenceNumber)
         } else {
             getSuggestedWordsForNonBatchInput(wordComposer, ngramContext, keyboard, settingsValuesForSuggestion,
-                inputStyle, isCorrectionEnabled, sequenceNumber)
+                inputStyle, isCorrectionEnabled, sequenceNumber, nextCharGeneration)
         }
 
     // Retrieves suggestions for non-batch input (typing, recorrection, predictions...)
     // and calls the callback function with the suggestions.
     private fun getSuggestedWordsForNonBatchInput(wordComposer: WordComposer, ngramContext: NgramContext, keyboard: Keyboard,
                       settingsValuesForSuggestion: SettingsValuesForSuggestion, inputStyleIfNotPrediction: Int,
-                      isCorrectionEnabled: Boolean, sequenceNumber: Int): SuggestedWords {
+                      isCorrectionEnabled: Boolean, sequenceNumber: Int, nextCharGeneration: Int): SuggestedWords {
         val typedWordString = wordComposer.typedWord
         val resultsArePredictions = !wordComposer.isComposingWord
         val suggestionResults = if (typedWordString.isEmpty())
                 getNextWordSuggestions(ngramContext, keyboard, inputStyleIfNotPrediction, settingsValuesForSuggestion)
             else mDictionaryFacilitator.getSuggestionResults(wordComposer.composedDataSnapshot, ngramContext, keyboard,
                 settingsValuesForSuggestion, SESSION_ID_TYPING, inputStyleIfNotPrediction)
+        publishNextCharProbabilities(typedWordString, suggestionResults, keyboard.mId.locale, nextCharGeneration)
         val trailingSingleQuotesCount = StringUtils.getTrailingSingleQuotesCount(typedWordString)
         val capsMode = getCapsModeForTyping(wordComposer, keyboard)
         val suggestionsContainer = ArrayList(suggestionResults)
@@ -152,6 +157,36 @@ class Suggest(private val mDictionaryFacilitator: DictionaryFacilitator) {
         val isTypedWordValid = firstOccurrenceOfTypedWordInSuggestions > -1 || (!resultsArePredictions && !allowsToBeAutoCorrected)
         return SuggestedWords(suggestionsList, suggestionResults.mRawSuggestions, typedWordInfo,
             isTypedWordValid, hasAutoCorrection || correctToCapitalizedWord, false, inputStyle, sequenceNumber)
+    }
+
+    /**
+     * Publishes the next-character weights used by the adaptive touch areas, derived from the suggestions that
+     * continue the typed word (or, for an empty typed word, from the first letters of the predicted next words).
+     * Suggestions contribute with weights decaying by rank, so the engine's ranking is reflected.
+     */
+    private fun publishNextCharProbabilities(typedWord: String, results: SuggestionResults, locale: Locale, generation: Int) {
+        if (typedWord.length > MAX_PREFIX_LENGTH_FOR_NEXT_CHAR) {
+            NextCharPredictor.clearPublished()
+            return
+        }
+        val weights = HashMap<Int, Float>()
+        val prefixes = HashMap<Locale, String>()
+        var evidence = 0
+        var weight = 1f
+        for (info in results) {
+            // with multilingual typing a suggestion may come from a dictionary of another language: fold with its locale
+            val dictionaryLocale = info.mSourceDict?.mLocale ?: locale
+            val prefix = prefixes.getOrPut(dictionaryLocale) { typedWord.lowercase(dictionaryLocale) }
+            val word = info.mWord.lowercase(dictionaryLocale)
+            if (word.length <= prefix.length || !word.startsWith(prefix)) continue
+            val next = word.codePointAt(prefix.length)
+            if (!Character.isLetter(next)) continue
+            weights[next] = (weights[next] ?: 0f) + weight
+            weight *= NextCharPredictor.RANK_DECAY
+            evidence++
+        }
+        if (evidence == 0) NextCharPredictor.clearPublished()
+        else NextCharPredictor.publish(typedWord, generation, weights, evidence, locale)
     }
 
     // returns [allowsToBeAutoCorrected, hasAutoCorrection]
@@ -372,6 +407,9 @@ class Suggest(private val mDictionaryFacilitator: DictionaryFacilitator) {
 
         // Close to -2**31
         private const val SUPPRESS_SUGGEST_THRESHOLD = -2000000000
+
+        // adaptive touch areas: longer typed words are not worth deriving next-character weights for
+        private const val MAX_PREFIX_LENGTH_FOR_NEXT_CHAR = 32
 
         private const val MAXIMUM_AUTO_CORRECT_LENGTH_FOR_GERMAN = 12
         // TODO: should we add Finnish here?

@@ -133,6 +133,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
 
     // The current key where this pointer is.
     private Key mCurrentKey = null;
+    // Key chosen by the adaptive touch areas on touch down (null if the touch was not moved), and the key under the
+    // finger at that time. See onDownKey and onMoveKeyInternal.
+    private Key mAdaptiveKey = null;
+    private Key mAdaptiveGeometricKey = null;
     // The position where the current key was recognized for the first time.
     private int mKeyX;
     private int mKeyY;
@@ -514,7 +518,47 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         mDownTime = eventTime;
         CoordinateUtils.set(mDownCoordinates, x, y);
         mBogusMoveEventDetector.onDownKey();
-        return onMoveToNewKey(onMoveKeyInternal(x, y), x, y);
+        mAdaptiveKey = null;
+        final Key geometricKey = onMoveKeyInternal(x, y);
+        // Adaptive touch areas: a likely next letter may take over the touch from the key under the finger.
+        // The choice is made once, on down, and kept while the finger stays on the key it touched down on
+        // (see onMoveKeyInternal), so that finger jitter near the shifted boundary cannot flip or drop the tap.
+        final Key key = mKeyDetector.adjustKeyForTyping(geometricKey, x, y, getPendingKeyCodesOfOlderPointers());
+        if (key != geometricKey) {
+            mAdaptiveKey = key;
+            mAdaptiveGeometricKey = geometricKey;
+        }
+        return onMoveToNewKey(key, x, y);
+    }
+
+    private static final ArrayList<PointerTrackerQueue.Element> sOlderPointers = new ArrayList<>();
+
+    /**
+     * Codes of the keys held down by older pointers, oldest first. When typing fast with two thumbs the previous key
+     * is often still down when the next one goes down; its letter is typed first, so the prediction for this touch
+     * must take it into account. Null if there is none.
+     */
+    @Nullable
+    private int[] getPendingKeyCodesOfOlderPointers() {
+        final ArrayList<PointerTrackerQueue.Element> older = sOlderPointers;
+        older.clear();
+        sPointerTrackerQueue.getNonModifierElementsOlderThan(this, older);
+        if (older.isEmpty()) {
+            return null;
+        }
+        final int[] codes = new int[older.size()];
+        int count = 0;
+        for (final PointerTrackerQueue.Element element : older) {
+            final Key key = element instanceof PointerTracker ? ((PointerTracker) element).getKey() : null;
+            if (key != null) {
+                codes[count++] = key.getCode();
+            }
+        }
+        older.clear();
+        if (count == 0) {
+            return null;
+        }
+        return count == codes.length ? codes : java.util.Arrays.copyOf(codes, count);
     }
 
     private static int getDistance(final int x1, final int y1, final int x2, final int y2) {
@@ -525,7 +569,13 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         mBogusMoveEventDetector.onMoveKey(getDistance(x, y, mLastX, mLastY));
         mLastX = x;
         mLastY = y;
-        return mKeyDetector.detectHitKey(x, y);
+        final Key geometricKey = mKeyDetector.detectHitKey(x, y);
+        if (mAdaptiveKey != null && geometricKey == mAdaptiveGeometricKey) {
+            return mAdaptiveKey;
+        }
+        // Off the key it touched down on, the finger is back to plain geometry. The adaptive key stays current
+        // until the move is big enough to count (see isMajorEnoughMoveToBeOnNewKey and onMoveToNewKey).
+        return geometricKey;
     }
 
     private Key onMoveKey(final int x, final int y) {
@@ -533,6 +583,9 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
     }
 
     private Key onMoveToNewKey(final Key newKey, final int x, final int y) {
+        if (newKey != mAdaptiveKey) {
+            mAdaptiveKey = null;
+        }
         mCurrentKey = newKey;
         mKeyX = x;
         mKeyY = y;
@@ -734,7 +787,8 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             }
 
             startRepeatKey(key);
-            startLongPressTimer(key);
+            // A long press is handled for the key under the finger (see onLongPressed), so its timer decides.
+            startLongPressTimer(mAdaptiveKey != null && key == mAdaptiveKey ? mAdaptiveGeometricKey : key);
             setPressedKeyGraphics(key, eventTime);
             mStartX = x;
             mStartY = y;
@@ -1156,6 +1210,13 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         if (isShowingPopupKeysPanel()) {
             return;
         }
+        if (mAdaptiveKey != null && mCurrentKey == mAdaptiveKey) {
+            // A long press is deliberate: use the key under the finger, not the letter predicted by the language model.
+            setReleasedKeyGraphics(mAdaptiveKey, false);
+            mCurrentKey = mAdaptiveGeometricKey;
+            mAdaptiveKey = null;
+            setPressedKeyGraphics(mCurrentKey, SystemClock.uptimeMillis());
+        }
         final Key key = getKey();
         if (key == null) {
             return;
@@ -1235,8 +1296,11 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             return true;
         }
         // Here curKey points to the different key from newKey.
+        // With adaptive touch areas the current key may be a predicted neighbour of the key the finger is on;
+        // the hysteresis is about the finger's movement, so it is measured from the key it touched down on.
+        final Key fingerKey = (mAdaptiveKey != null && curKey == mAdaptiveKey) ? mAdaptiveGeometricKey : curKey;
         final int keyHysteresisDistanceSquared = mKeyDetector.getKeyHysteresisDistanceSquared(mIsInSlidingKeyInput);
-        final int distanceFromKeyEdgeSquared = curKey.squaredDistanceToEdge(x, y);
+        final int distanceFromKeyEdgeSquared = fingerKey.squaredDistanceToEdge(x, y);
         if (distanceFromKeyEdgeSquared >= keyHysteresisDistanceSquared) {
             if (DEBUG_MODE) {
                 final float distanceToEdgeRatio = (float)Math.sqrt(distanceFromKeyEdgeSquared) / mKeyboard.mMostCommonKeyWidth;

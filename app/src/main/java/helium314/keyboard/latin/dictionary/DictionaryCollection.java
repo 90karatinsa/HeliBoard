@@ -6,6 +6,8 @@
 
 package helium314.keyboard.latin.dictionary;
 
+import androidx.annotation.NonNull;
+
 import helium314.keyboard.latin.NgramContext;
 import helium314.keyboard.latin.SuggestedWords.SuggestedWordInfo;
 import helium314.keyboard.latin.common.ComposedData;
@@ -67,6 +69,17 @@ public final class DictionaryCollection extends Dictionary {
         for (int i = mDictionaries.size() - 1; i >= 0; --i)
             if (mDictionaries.get(i).isInDictionary(word)) return true;
         return false;
+    }
+
+    @Override
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        boolean complete = true;
+        for (final Dictionary dictionary : mDictionaries) {
+            // emoji dictionaries hold search keywords, not words of the language
+            if (TYPE_EMOJI.equals(dictionary.mDictType)) continue;
+            complete &= dictionary.forEachWord(visitor);
+        }
+        return complete;
     }
 
     @Override

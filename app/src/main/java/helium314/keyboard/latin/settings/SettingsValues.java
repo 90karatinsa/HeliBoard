@@ -151,6 +151,8 @@ public class SettingsValues {
     public final float mKeypressSoundVolume;
     public final boolean mAutoCorrectionEnabledPerUserSettings;
     public final boolean mAutoCorrectCapitalizedSuggestion;
+    public final boolean mAdaptiveTouchAreas;
+    public final float mAdaptiveTouchAreaIntensity;
     public final boolean mBackspaceRevertsAutocorrect;
     public final boolean mAutoCorrectShortcuts;
     public final boolean mSuggestionsEnabled;
@@ -233,6 +235,8 @@ public class SettingsValues {
                 : Float.MAX_VALUE;
         mScoreLimitForAutocorrect = (int)((1.14 - 0.2 * Math.pow(autoCorrectConfidence + 0.47, 3.5)) * 900000);
         mAutoCorrectCapitalizedSuggestion = prefs.getBoolean(Settings.PREF_AUTOCORRECT_CAPITALIZED_SUGGESTION, Defaults.PREF_AUTOCORRECT_CAPITALIZED_SUGGESTION);
+        mAdaptiveTouchAreas = prefs.getBoolean(Settings.PREF_NEXT_CHAR_TOUCH_AREA, Defaults.PREF_NEXT_CHAR_TOUCH_AREA);
+        mAdaptiveTouchAreaIntensity = prefs.getFloat(Settings.PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY, Defaults.PREF_NEXT_CHAR_TOUCH_AREA_INTENSITY);
         mAutoCorrectShortcuts = prefs.getBoolean(Settings.PREF_AUTOCORRECT_SHORTCUTS, Defaults.PREF_AUTOCORRECT_SHORTCUTS);
         mBackspaceRevertsAutocorrect = prefs.getBoolean(Settings.PREF_BACKSPACE_REVERTS_AUTOCORRECT, Defaults.PREF_BACKSPACE_REVERTS_AUTOCORRECT);
         mBigramPredictionEnabled = prefs.getBoolean(Settings.PREF_BIGRAM_PREDICTIONS, Defaults.PREF_BIGRAM_PREDICTIONS);

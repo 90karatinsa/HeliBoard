@@ -6,6 +6,8 @@
 
 package helium314.keyboard.latin.dictionary;
 
+import androidx.annotation.NonNull;
+
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -182,6 +184,27 @@ public abstract class Dictionary {
 
     public WordProperty getWordProperty(final String word, final boolean isBeginningOfSentence) {
         return null;
+    }
+
+    /** Receives the words of a dictionary, see {@link #forEachWord(WordVisitor)}. */
+    public interface WordVisitor {
+        /**
+         * @param word a word of the dictionary
+         * @param probability its unigram probability (0..255, logarithmic), or {@link #NOT_A_PROBABILITY}
+         */
+        void visit(@NonNull String word, int probability);
+    }
+
+    /**
+     * Calls {@code visitor} for every word of this dictionary, on the calling thread. Dictionaries that cannot be
+     * iterated, or are not loaded, call it for nothing. Iterating a main dictionary takes a while, so this should
+     * only be called from a background thread.
+     *
+     * @return whether all words were visited; false if the iteration was cut short, e.g. because the dictionary
+     * was closed or busy
+     */
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        return true;
     }
 
     /**

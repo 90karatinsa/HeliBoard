@@ -142,6 +142,12 @@
     <string name="more_autocorrect">More auto-correction</string>
     <!-- Description for more_autocorrect -->
     <string name="more_autocorrect_summary">Auto-correct even when not explicitly requested by the input field</string>
+    <!-- Option to enable adaptive touch areas: the key areas that respond to a touch (not the drawn keys) grow for letters that are likely to come next in the word -->
+    <string name="next_char_touch_area">Adaptive touch areas</string>
+    <!-- Description for next_char_touch_area -->
+    <string name="next_char_touch_area_summary">Keys look the same, but the area that reacts to your finger grows for letters that are likely to come next in the word and shrinks for unlikely ones. Requires suggestions.</string>
+    <!-- Option to adjust how strongly the touch areas adapt -->
+    <string name="next_char_touch_area_intensity">Touch area adaptation strength</string>
     <!-- Option to change the confidence level of the auto correction -->
     <string name="auto_correction_confidence">Auto-correction confidence</string>
     <!-- Option to enable auto correction for shortcuts (will correct shortcut to the actual word) -->

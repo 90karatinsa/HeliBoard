@@ -64,6 +64,7 @@ import helium314.keyboard.latin.utils.GestureDataGatheringKt;
 import helium314.keyboard.latin.utils.InputTypeUtils;
 import helium314.keyboard.latin.utils.IntentUtils;
 import helium314.keyboard.latin.utils.Log;
+import helium314.keyboard.latin.utils.NextCharPredictor;
 import helium314.keyboard.latin.utils.BackgroundGatheringCache;
 import helium314.keyboard.latin.utils.RecapitalizeMode;
 import helium314.keyboard.latin.utils.RecapitalizeStatus;
@@ -146,6 +147,29 @@ public final class InputLogic {
         mLatinIME = latinIME;
         mSuggestionStripViewAccessor = suggestionStripViewAccessor;
         mWordComposer = new WordComposer();
+        NextCharPredictor.setInputState(new NextCharPredictor.InputState() {
+            @Override
+            public WordComposer getWordComposer() {
+                return mWordComposer;
+            }
+
+            @Override
+            public Locale getLocale() {
+                return mDictionaryFacilitator.getCurrentLocale();
+            }
+
+            @Override
+            public boolean isCursorAtWordStart() {
+                final SettingsValues settingsValues = Settings.getValues();
+                return settingsValues != null && isCursorAtStartOrAfterSeparator(settingsValues);
+            }
+
+            @Override
+            public boolean isWordSeparator(final int code) {
+                final SettingsValues settingsValues = Settings.getValues();
+                return settingsValues != null && settingsValues.mSpacingAndPunctuations.isWordSeparator(code);
+            }
+        });
         mConnection = new RichInputConnection(latinIME);
         mInputLogicHandler = new InputLogicHandler(mLatinIME.mHandler, this);
         mSuggest = new Suggest(dictionaryFacilitator);
@@ -217,6 +241,7 @@ public final class InputLogic {
      * Clean up the input logic after input is finished.
      */
     public void finishInput() {
+        NextCharPredictor.onComposingReset();
         if (mWordComposer.isComposingWord()) {
             mConnection.finishComposingText();
             StatsUtils.onWordCommitUserTyped(mWordComposer.getTypedWord(), mWordComposer.isBatchMode());
@@ -554,6 +579,7 @@ public final class InputLogic {
     public void onStartBatchInput(final SettingsValues settingsValues,
             final KeyboardSwitcher keyboardSwitcher, final LatinIME.UIHandler handler) {
         mWordBeingCorrectedByCursor = null;
+        NextCharPredictor.onComposingReset();
         mInputLogicHandler.onStartBatchInput();
         handler.showGesturePreviewAndSetSuggestions(SuggestedWords.getEmptyBatchInstance(), false);
         handler.cancelUpdateSuggestionStrip();
@@ -1152,6 +1178,9 @@ public final class InputLogic {
      */
     private void handleSeparatorEvent(final Event event, final InputTransaction inputTransaction,
             final LatinIME.UIHandler handler) {
+        // The context for the next word changes even when nothing was being composed (e.g. a second space
+        // becoming a period): next-letter predictions made for the old context must not be used any more.
+        NextCharPredictor.onComposingReset();
         final int codePoint = event.getCodePoint();
         final SettingsValues settingsValues = inputTransaction.getSettingsValues();
         final boolean wasComposingWord = mWordComposer.isComposingWord();
@@ -1278,6 +1307,7 @@ public final class InputLogic {
             final String currentKeyboardScript) {
         mSpaceState = SpaceState.NONE;
         mDeleteCount++;
+        NextCharPredictor.onComposingReset(); // the text before the cursor changes: predictions for it are stale
 
         // In many cases after backspace, we need to update the shift state. Normally we need
         // to do this right away to avoid the shift state being out of date in case the user types
@@ -1775,8 +1805,9 @@ public final class InputLogic {
         }
 
         final AsyncResultHolder<SuggestedWords> holder = new AsyncResultHolder<>("Suggest");
+        final int nextCharGeneration = NextCharPredictor.getGeneration();
         mInputLogicHandler.getSuggestedWords(() -> getSuggestedWords(
-            inputStyle, SuggestedWords.NOT_A_SEQUENCE_NUMBER,
+            inputStyle, SuggestedWords.NOT_A_SEQUENCE_NUMBER, nextCharGeneration,
             suggestedWords -> {
                 final String typedWordString = mWordComposer.getTypedWord();
                 final SuggestedWordInfo typedWordInfo = new SuggestedWordInfo(
@@ -1841,8 +1872,9 @@ public final class InputLogic {
 
         updateInlineEmojiSearch();
         if (isInlineEmojiSearchAction()) {
+            final int nextCharGeneration = NextCharPredictor.getGeneration();
             mInputLogicHandler.getSuggestedWords(() -> getSuggestedWords(SuggestedWords.INPUT_STYLE_TYPING,
-                SuggestedWords.NOT_A_SEQUENCE_NUMBER, this::doShowSuggestionsAndClearAutoCorrectionIndicator));
+                SuggestedWords.NOT_A_SEQUENCE_NUMBER, nextCharGeneration, this::doShowSuggestionsAndClearAutoCorrectionIndicator));
             return;
         }
 
@@ -1913,8 +1945,9 @@ public final class InputLogic {
             // If there weren't any suggestion spans on this word, suggestions#size() will be 1
             // if shouldIncludeResumedWordInSuggestions is true, 0 otherwise. In this case, we
             // have no useful suggestions, so we will try to compute some for it instead.
+            final int nextCharGeneration = NextCharPredictor.getGeneration();
             mInputLogicHandler.getSuggestedWords(() -> getSuggestedWords(SuggestedWords.INPUT_STYLE_TYPING,
-                SuggestedWords.NOT_A_SEQUENCE_NUMBER, this::doShowSuggestionsAndClearAutoCorrectionIndicator));
+                SuggestedWords.NOT_A_SEQUENCE_NUMBER, nextCharGeneration, this::doShowSuggestionsAndClearAutoCorrectionIndicator));
         } else {
             // We found suggestion spans in the word. We'll create the SuggestedWords out of
             // them, and make willAutoCorrect false. We make typedWordValid false, because the
@@ -2196,6 +2229,7 @@ public final class InputLogic {
      */
     private void resetComposingState(final boolean alsoResetLastComposedWord) {
         mWordComposer.reset();
+        NextCharPredictor.onComposingReset();
         if (alsoResetLastComposedWord) {
             mLastComposedWord = LastComposedWord.NOT_A_COMPOSED_WORD;
         }
@@ -2451,6 +2485,7 @@ public final class InputLogic {
      */
     private void commitChosenWord(final SettingsValues settingsValues, final String chosenWord,
             final int commitType, final String separatorString) {
+        NextCharPredictor.onComposingReset();
         long startTimeMillis = 0;
         if (DebugFlags.DEBUG_ENABLED) {
             startTimeMillis = SystemClock.elapsedRealtime();
@@ -2556,8 +2591,14 @@ public final class InputLogic {
         return true;
     }
 
-    // we used to provide keyboard, settingsValues and keyboardShiftMode, but every time read it from current instance anyway
     void getSuggestedWords(final int inputStyle, final int sequenceNumber, final OnGetSuggestedWordsCallback callback) {
+        getSuggestedWords(inputStyle, sequenceNumber, NextCharPredictor.getGeneration(), callback);
+    }
+
+    // we used to provide keyboard, settingsValues and keyboardShiftMode, but every time read it from current instance anyway
+    // nextCharGeneration: NextCharPredictor.getGeneration() as read on the UI thread when the suggestions were requested
+    void getSuggestedWords(final int inputStyle, final int sequenceNumber, final int nextCharGeneration,
+            final OnGetSuggestedWordsCallback callback) {
         final Keyboard keyboard = KeyboardSwitcher.getInstance().getKeyboard();
         if (keyboard == null) {
             callback.onGetSuggestedWords(SuggestedWords.getEmptyInstance());
@@ -2582,7 +2623,7 @@ public final class InputLogic {
                     keyboard,
                     settingsValues.mSettingsValuesForSuggestion,
                     settingsValues.mAutoCorrectEnabled,
-                    inputStyle, sequenceNumber);
+                    inputStyle, sequenceNumber, nextCharGeneration);
             callback.onGetSuggestedWords(suggestedWords);
         } catch (Exception e) {
             // better go without suggestions than have the keyboard crash

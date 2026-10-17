@@ -2,6 +2,8 @@
 
 package helium314.keyboard.latin.dictionary;
 
+import androidx.annotation.NonNull;
+
 import helium314.keyboard.event.HangulCombiner;
 import helium314.keyboard.latin.NgramContext;
 import helium314.keyboard.latin.SuggestedWords;
@@ -78,6 +80,11 @@ public class KoreanDictionary extends Dictionary {
     @Override
     public WordProperty getWordProperty(String word, boolean isBeginningOfSentence) {
         return mDictionary.getWordProperty(processInput(word), isBeginningOfSentence);
+    }
+
+    @Override
+    public boolean forEachWord(@NonNull final WordVisitor visitor) {
+        return mDictionary.forEachWord(visitor);
     }
 
     @Override

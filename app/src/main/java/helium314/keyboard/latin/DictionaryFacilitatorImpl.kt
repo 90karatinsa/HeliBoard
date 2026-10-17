@@ -31,6 +31,7 @@ import helium314.keyboard.latin.permissions.PermissionsUtil
 import helium314.keyboard.latin.personalization.UserHistoryDictionary
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.settings.SettingsValuesForSuggestion
+import helium314.keyboard.latin.utils.CharNgramModels
 import helium314.keyboard.latin.utils.Log
 import helium314.keyboard.latin.utils.SubtypeSettings
 import helium314.keyboard.latin.utils.SuggestionResults
@@ -56,7 +57,11 @@ import java.util.concurrent.TimeUnit
  * Currently AndroidSpellCheckerService and LatinIME both use DictionaryFacilitator as
  * a client for interacting with dictionaries.
  */
-class DictionaryFacilitatorImpl : DictionaryFacilitator {
+/**
+ * [buildsCharModels]: whether character models for the adaptive touch areas are built from the loaded dictionaries;
+ * false for the spell checker's instance, which has no keyboard.
+ */
+class DictionaryFacilitatorImpl(private val buildsCharModels: Boolean = true) : DictionaryFacilitator {
     private var dictionaryGroups = listOf(DictionaryGroup())
 
     @Volatile
@@ -255,6 +260,12 @@ class DictionaryFacilitatorImpl : DictionaryFacilitator {
 
                 listener?.onUpdateMainDictionaryAvailability(hasAtLeastOneInitializedMainDictionary())
                 latchForWaitingLoadingMainDictionary.countDown()
+                if (buildsCharModels) {
+                    dictGroupsWithNewMainDict.forEach { (dictGroup, mainDict) ->
+                        CharNgramModels.ensureBuilt(context, dictGroup.locale, CharNgramModels.dictKeyFor(context, dictGroup.locale),
+                            mainDict, dictGroup.getSubDict(Dictionary.TYPE_USER_HISTORY))
+                    }
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "could not initialize main dictionaries for $locales", e)
             }
@@ -388,6 +399,7 @@ class DictionaryFacilitatorImpl : DictionaryFacilitator {
         // We don't add words with 0-frequency (assuming they would be profanity etc.).
         val isValid = mainFreq > 0
         UserHistoryDictionary.addToDictionary(userHistoryDictionary, ngramContext, wordToUse, isValid, timeStampInSeconds)
+        CharNgramModels.learn(dictionaryGroup.locale, wordToUse)
     }
 
     private fun addToPersonalDictionaryIfInvalidButInHistory(word: String) {
@@ -591,6 +603,7 @@ class DictionaryFacilitatorImpl : DictionaryFacilitator {
     override fun clearUserHistoryDictionary(context: Context) {
         for (dictionaryGroup in dictionaryGroups) {
             dictionaryGroup.getSubDict(Dictionary.TYPE_USER_HISTORY)?.clear()
+            CharNgramModels.forget(dictionaryGroup.locale)
         }
     }
 
